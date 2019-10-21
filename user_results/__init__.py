@@ -3,8 +3,3 @@
 @author: Zheng Fang
 """
 
-
-class Fetch:
-
-    Cls = None
-

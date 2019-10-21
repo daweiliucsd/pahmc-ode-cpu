@@ -6,19 +6,19 @@ This is a unit test. If you would like to further develop pahmc_ode_cpu, you
 should visit here frequently. You should also be familiar with the Python (3.7)
 built-in module 'unittest'.
 
-To run this unit test, copy this file into its parent directory and execute it.
+To run this unit test, copy this file into its parent directory and run it.
 """
 
 
-import cProfile
+import cProfile, pstats
 
 import numpy as np
 import matplotlib.pyplot as plt
 import time
 
 from pahmc_ode_cpu.configure import Configure
-from pahmc_ode_cpu.pahmc import Core
 from pahmc_ode_cpu.data_preparation import Data
+from pahmc_ode_cpu.__init__ import Fetch
 from pahmc_ode_cpu import lib_dynamics
 
 
@@ -33,7 +33,7 @@ D = 20
 # set the length of the observation window
 M = 200
 # set the observed dimensions (list with smallest possible value 1)
-obsdim = [1, 2, 4, 6, 8, 10, 12, 14, 16, 17, 19, 20]
+obsdim = [1, 2, 4, 6, 8, 10, 12, 14, 15, 17, 19, 20]
 # set the discretization interval
 dt = 0.025
 
@@ -59,16 +59,18 @@ soft_dynrange = (-10, 10)
 # set an initial guess for the parameters
 par_start = 8.0
 
-"""Sepcs for the twin-experiment data"""
+"""Specs for the twin-experiment data"""
 # set the length of the data (must be greater than M defined above)
 length = 1000
-# set the noise level (standard deviation) in the data
-noise = 0.4
+# set the noise levels (standard deviations) in the data for each dimension
+noise = 0.4 * np.ones(D)
 # set the true parameters (caution: order must be consistent)
 par_true = 8.17
 # set the initial condition for the data generation process
 x0 = np.ones(D)
 x0[0] = 0.01
+# set the switch for discarding the first half of the generated data
+burndata = True
 #===============================end here===============================
 
 
@@ -78,7 +80,7 @@ config = Configure(name,
                    Rf0, alpha, betamax, 
                    n_iter, epsilon, S, mass, scaling, 
                    soft_dynrange, par_start, 
-                   length, noise, par_true, x0)
+                   length, noise, par_true, x0, burndata)
 
 config.check_all()
 
@@ -87,21 +89,26 @@ D, M, obsdim, dt, \
 Rf0, alpha, betamax, \
 n_iter, epsilon, S, mass, scaling, \
 soft_dynrange, par_start, \
-length, noise, par_true, x0 = config.regulate()
+length, noise, par_true, x0, burndata = config.regulate()
 
 stimuli = config.get_stimuli()
 
 
 """Get the dynamics object."""
 try:
-    dyn = getattr(lib_dynamics, f'Builtin_{name}')(name, stimuli)
+    Fetch.Cls = getattr(lib_dynamics, f'Builtin_{name}')
 except:
     import def_dynamics
-    dyn = def_dynamics.Dynamics(name, stimuli)
+    Fetch.Cls = def_dynamics.Dynamics
+
+from pahmc_ode_cpu.pahmc import Core
+
+dyn = (Fetch.Cls)(name, stimuli)
 
 
 """Generate twin-experiment data."""
-data_noisy, stimuli = Data().generate(dyn, D, length, dt, noise, par_true, x0)
+data_noisy, stimuli \
+  = Data().generate(dyn, D, length, dt, noise, par_true, x0, burndata)
 Y = data_noisy[obsdim, 0:M]
 
 
@@ -118,9 +125,13 @@ cProfile.run('acceptance, action, action_meanpath, burn, ' \
              + 'FE_meanpath, ME_meanpath, par_history, par_mean, ' \
              + 'Rf, Rm, X_init, X_mean, Xfinal_history ' \
              + '= job.pa(Rf0, alpha, betamax, n_iter, ' \
-             + 'epsilon, S, mass, scaling, soft_dynrange, par_start)')
+             + 'epsilon, S, mass, scaling, soft_dynrange, par_start)', 
+             'profiling')
 
 print(f'Total time = {time.perf_counter()-t0:.2f} seconds.')
+
+p = pstats.Stats('profiling')
+p.strip_dirs().sort_stats(pstats.SortKey.CUMULATIVE).print_stats(10)
 
 
 # plot action vs. iteration
